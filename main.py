@@ -39,6 +39,10 @@ async def gpt4(ctx, *, prompt):
     response = await get_gpt4_response(prompt)
     await ctx.send(response)
 
+@bot.command(name="currentprompt")
+async def current_prompt(ctx):
+    await ctx.send(f"```Current bot prompt: {bot_prompt}```")
+
 @bot.event
 async def on_message(message):
     global bot_prompt  # Add this line
