@@ -10,6 +10,7 @@ source venv/bin/activate
 pip install --upgrade pip
 pip install discord.py
 pip install openai
+pip install python-dotenv
 
 # Deactivate the virtual environment
 deactivate

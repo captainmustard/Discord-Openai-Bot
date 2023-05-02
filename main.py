@@ -2,6 +2,10 @@ import os
 import discord
 from discord.ext import commands
 import openai
+from dotenv import load_dotenv
+
+# Load the environment variables from the config.env file
+load_dotenv("config.env")
 
 # Set up the OpenAI API client
 openai.api_key = os.environ["OPENAI_API_KEY"]
