@@ -3,6 +3,11 @@ import discord
 from discord import app_commands
 import openai
 from dotenv import load_dotenv
+import json
+import requests
+import io
+import base64
+from PIL import Image, PngImagePlugin
 
 # Load the environment variables from the config.env file
 load_dotenv("config.env")
@@ -33,6 +38,31 @@ async def get_gpt4_response(prompt):
     )
     return response['choices'][0]['message']['content'].strip()
 
+async def txt2img(prompt: str):
+    url = "http://192.168.1.18:7860"
+    payload = {
+        "prompt": prompt,
+        "steps": 5
+    }
+
+    response = requests.post(url=f'{url}/sdapi/v1/txt2img', json=payload)
+    r = response.json()
+
+    for i in r['images']:
+        image = Image.open(io.BytesIO(base64.b64decode(i.split(",", 1)[0])))
+
+        png_payload = {
+            "image": "data:image/png;base64," + i
+        }
+        response2 = requests.post(url=f'{url}/sdapi/v1/png-info', json=png_payload)
+
+        pnginfo = PngImagePlugin.PngInfo()
+        pnginfo.add_text("parameters", response2.json().get("info"))
+        image.save('output.png', pnginfo=pnginfo)
+
+    return 'output.png'
+
+
 @tree.command(name="computer", description="Ask a question")
 async def gpt4(interaction, *, prompt: str):
     print("Received prompt:", prompt)
@@ -50,6 +80,14 @@ async def set_prompt(interaction, *, new_prompt: str):
     global bot_prompt
     bot_prompt = new_prompt.strip()
     await interaction.response.send_message("Bot prompt changed.")
+
+@tree.command(name="txt2img", description="Generate an image based on a given text")
+async def generate_image(interaction: discord.Interaction, *, prompt: str):
+    output_file = await txt2img(prompt)
+    await interaction.response.send_message("Here is the generated image:", ephemeral=True)
+    with open(output_file, "rb") as image_file:
+        image = discord.File(image_file, filename="output.png")
+        await interaction.followup.send(file=image)
 
 @client.event
 async def on_ready():
