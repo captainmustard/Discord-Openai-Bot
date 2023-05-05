@@ -42,7 +42,8 @@ async def txt2img(prompt: str):
     url = "http://192.168.1.18:7860"
     payload = {
         "prompt": prompt,
-        "steps": 5
+        "negative_prompt": " deformed, blurry, bad anatomy, disfigured, poorly drawn face, mutation, mutated, extra_limb, ugly, poorly drawn hands, fused fingers, messy drawing, broken legs censor, censored, censor_bar, multiple breasts, mutated hands and fingers, long body , poorly drawn , black-white, liquid body, liquidtongue, malformed, anatomical nonsense, text font ui, error, malformed hands, long neck, blurred, lowers, low res, bad proportions, bad shadow, uncoordinated body, unnatural body, fused breasts, bad breasts, huge breasts, poorly drawn breasts, extra breasts, liquid breasts, heavy breasts, missingbreasts, huge haunch, huge thighs, huge calf, bad hands, fused hand, missing hand, disappearing arms, disappearing thigh, disappearing calf, disappearing legs, fusedears, bad ears, poorly drawn ears, extra ears, liquid ears, heavy ears, missing ears, fused animal ears, bad animal ears, poorly drawn animal ears, extra animal ears, liquidanimal ears, heavy animal ears, missing animal ears, text, ui, missing fingers, missing limb, one hand with more than fingers, one hand with less than fingers, one hand with more than digit, one hand with less than digit, extra digit, fewer digits, fused digit, missing digit, bad digit, liquid digit, colorful tongue, blacktongue, cropped, watermark, username, JPEG artifacts, signature, D, D game, D game scene, D character, malformed feet, extra feet, bad feet, poorly drawnfeet, fused feet, missing feet, extra shoes, bad shoes, fused shoes, more than two shoes, poorly drawn shoes, bad gloves, poorly drawn gloves, fused gloves, bad cum, poorly drawn cum, fused cum, bad hairs, poorly drawn hairs, fused hairs, big muscles, bad face, fused face, cloned face, big face, long face, badeyes, fused eyes poorly drawn eyes, extra eyes, malformed limbs, more than  nipples, missing nipples, different nipples, fused nipples, bad nipples, poorly drawnnipples, black nipples, colorful nipples, gross proportions short arm, missing arms, missing thighs, missing calf, missing legs, duplicate, morbid, mutilated, more than  left hand, more than  right hand, extra arms, extra thighs, more than  thighs, extra calf,fused calf, extra legs, bad knee, extra knee, more than  legs, bad tails, bad mouth, fused mouth, poorly drawn mouth, bad tongue, tongue within mouth, too longtongue, black tongue, big mouth, cracked mouth, dirty face, dirty teeth, dirty pantie, fused pantie, poorly drawn pantie, fused cloth, poorly drawn cloth, badpantie, yellow teeth, thick lips, bad camel toe, colorful camel toe, bad asshole, poorly drawn asshole, fused asshole, missing asshole, bad anus, bad pussy, bad crotch, badcrotch seam, fused anus, fused pussy, fused crotch, poorly drawn crotch, fused seam, poorly drawn anus, poorly drawn pussy, poorlydrawn crotch seam, bad thigh gap, missing thigh gap, fused thigh gap, liquid thigh gap, poorly drawn thigh gap, bad collarbone, fused collarbone, missing collarbone, liquid collarbone, strong girl, obesity, worst quality, low quality, normal quality, liquid tentacles, bad tentacles, poorly drawn tentacles, split tentacles, fused tentacles, missing clit, bad clit, fused clit, colorful clit, black clit, liquid clit, QR code, bar code, safety panties, safety knickers, beard, furry, pony, pubic hair, mosaic, futa, testis ",
+        "steps": 25
     }
 
     response = requests.post(url=f'{url}/sdapi/v1/txt2img', json=payload)
@@ -83,11 +84,12 @@ async def set_prompt(interaction, *, new_prompt: str):
 
 @tree.command(name="txt2img", description="Generate an image based on a given text")
 async def generate_image(interaction: discord.Interaction, *, prompt: str):
+    user_mention = interaction.user.mention
+    await interaction.response.defer()
     output_file = await txt2img(prompt)
-    await interaction.response.send_message("Here is the generated image:", ephemeral=True)
     with open(output_file, "rb") as image_file:
         image = discord.File(image_file, filename="output.png")
-        await interaction.followup.send(file=image)
+        await interaction.followup.send(content=f"{user_mention}, prompt: '{prompt}':", file=image)
 
 @client.event
 async def on_ready():
