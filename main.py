@@ -8,6 +8,9 @@ import io
 import base64
 from PIL import Image, PngImagePlugin
 import toml
+import requests
+from noaa_sdk import NOAA
+from datetime import datetime, timedelta
 
 # Load the configuration from the config.toml file
 config = toml.load("config.toml")
@@ -18,6 +21,7 @@ discord_bot_token = config["keys"]["DISCORD_BOT_TOKEN"]
 
 # Access the prompts from the configuration
 bot_prompt = config["prompts"]["default_prompt"]
+bot_prompt_weather = config["prompts"]["weather_prompt"]
 
 # Access the txt2img configuration from the configuration
 stable_diffusion_url = config["txt2img"]["stable_diffusion"]
@@ -110,6 +114,56 @@ async def process_and_send_response(prompt, interaction=None, message=None):
         elif message:
             await message.channel.send(response)
 
+async def get_weather_forecast(postal_code='72916', country_code='US'):
+    n = NOAA()
+    res = n.get_forecasts(postal_code, country_code)
+
+    now = datetime.now()
+
+    weather_info = {}
+    for forecast in res:
+        start_time = datetime.fromisoformat(forecast['startTime'][:-6])
+        end_time = datetime.fromisoformat(forecast['endTime'][:-6])
+        hour = start_time.hour
+
+        # Add the forecast to the weather_info dictionary for the corresponding hour
+        if start_time.date() == now.date():
+            weather_info[hour] = forecast
+
+    # Create a string for each hour's forecast
+    weather_strings = []
+    for hour, forecast in weather_info.items():
+        weather_string = f"At {hour}:00: {forecast['shortForecast']}, {forecast['temperature']}°{forecast['temperatureUnit']}, wind speed: {forecast['windSpeed']} from {forecast['windDirection']}."
+        weather_strings.append(weather_string)
+
+    # Combine all the hourly forecast strings into a single string
+    weather_string = "\n".join(weather_strings)
+
+    return weather_string
+
+async def get_gpt4_response_with_weather():
+    weather_data = await get_weather_forecast()
+    print(weather_data)
+    messages = [
+        {
+            "role": "system",
+            "content": f"summarize the weather forecast for the day in the writing style of boomhauer from king of the hill. Be consise and to the point. Keep it short. Limit your response to 1000 characters. Here is the data {weather_data}",
+        },
+    ]
+
+    response = openai.ChatCompletion.create(
+        model="gpt-3.5-turbo",
+        messages=messages,
+        max_tokens=3500,
+        n=1,
+        stop=None,
+        temperature=0.5,
+    )
+
+    response_text = response['choices'][0]['message']['content'].strip()
+    return response_text
+
+
 # Discord slash commands
 
 @tree.command(name="computer", description="Ask a question")
@@ -137,6 +191,13 @@ async def generate_image(interaction: discord.Interaction, *, prompt: str):
         image = discord.File(image_file, filename="output.png")
         await interaction.followup.send(content=f"{user_mention}, prompt: '{prompt}':", file=image)
 
+@tree.command(name="weather_gpt", description="Get the weather forecast and generate a GPT response")
+async def weather_gpt(interaction):
+    await interaction.response.defer()
+    response_text = await get_gpt4_response_with_weather()
+    await interaction.followup.send(response_text)
+
+
 # discord message commands
 @client.event
 async def on_ready():
@@ -147,11 +208,20 @@ async def on_ready():
 async def on_message(message):
     global bot_prompt
 
+@client.event
+async def on_message(message):
+    global bot_prompt
+
     if message.author == client.user:
         return
     elif client.user in message.mentions:
         prompt = message.content.replace(f'<@!{client.user.id}>', '').strip()
         await process_and_send_response(prompt, message=message)
+    elif "!weather_gpt" in message.content:
+        # Remove the keyword and any leading or trailing whitespace
+        prompt = message.content.replace("!weather_gpt", "").strip()
+        response_text, _ = await get_gpt4_response_with_weather(prompt)
+        await message.channel.send(response_text)
 
 # warp 7, engage
 client.run(discord_bot_token)
