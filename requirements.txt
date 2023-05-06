@@ -1,0 +1,5 @@
+discord.py
+openai
+toml
+requests
+pillow

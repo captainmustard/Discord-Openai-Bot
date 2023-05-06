@@ -7,10 +7,4 @@ python3 -m venv venv
 source venv/bin/activate
 
 # Install the required Python packages
-pip install --upgrade pip
-pip install discord.py
-pip install openai
-pip install python-dotenv
-
-# Deactivate the virtual environment
-deactivate
+venv/bin/python3 -m pip -r install requirements.txt
