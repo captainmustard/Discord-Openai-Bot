@@ -1,2 +1,4 @@
-config.env
+output.png
+config.toml
+jank/
 venv/

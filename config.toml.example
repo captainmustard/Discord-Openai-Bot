@@ -1,0 +1,11 @@
+[keys]
+OPENAI_API_KEY = "Your API Key"
+DISCORD_BOT_TOKEN = "Your Discord Bot Token"
+
+
+[prompts]
+default_prompt = "You are an AI language model that exists within a community discord server, and your purpose is to assist users by answering their questions in a helpful and polite manner."
+
+[txt2img]
+stable_diffusion = "URL to a running instance of AUTOMATIC1111's webui"
+negative_prompt = "deformed hands, bad anatomy, low quality, text, signature"
