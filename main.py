@@ -47,7 +47,16 @@ async def get_gpt4_response(prompt):
         stop=None,
         temperature=0.5,
     )
-    return response['choices'][0]['message']['content'].strip()
+
+    response_text = response['choices'][0]['message']['content'].strip()
+
+    if "Image prompt:" in response_text:
+        image_prompt = response_text.split("Image prompt:", 1)[1].strip()
+        print(image_prompt)
+    else:
+        image_prompt = None
+
+    return response_text, image_prompt
 
 # Stable Diffusion setup
 async def txt2img(prompt: str):
@@ -75,14 +84,39 @@ async def txt2img(prompt: str):
 
     return 'output.png'
 
+async def process_and_send_response(prompt, interaction=None, message=None):
+    response, image_prompt = await get_gpt4_response(prompt)
+
+    # Check if the response contains an image prompt
+    if "Image prompt:" in response:
+        # Generate the image and send it
+        output_file = await txt2img(image_prompt)
+        with open(output_file, "rb") as image_file:
+            image = discord.File(image_file, filename="output.png")
+            if interaction:
+                await interaction.followup.send(content=f"Image prompt: '{image_prompt}'", file=image)
+            elif message:
+                await message.channel.send(content=f"Image prompt: '{image_prompt}'", file=image)
+
+        # Remove the image prompt from the text response
+        response = response.split("Image prompt:", 1)[0].strip()
+    else:
+        response = response.strip()
+
+    # Only send the text response if it's not an image prompt response
+    if "Image prompt:" not in response:
+        if interaction:
+            await interaction.followup.send(response)
+        elif message:
+            await message.channel.send(response)
+
 # Discord slash commands
+
 @tree.command(name="computer", description="Ask a question")
 async def gpt4(interaction, *, prompt: str):
     print("Received prompt:", prompt)
     await interaction.response.defer()
-    response = await get_gpt4_response(prompt)
-    print("Received response:", response)
-    await interaction.followup.send(response)
+    await process_and_send_response(prompt, interaction=interaction)
 
 @tree.command(name="currentprompt", description="Print current prompt")
 async def current_prompt(interaction):
@@ -117,8 +151,7 @@ async def on_message(message):
         return
     elif client.user in message.mentions:
         prompt = message.content.replace(f'<@!{client.user.id}>', '').strip()
-        response = await get_gpt4_response(prompt)
-        await message.channel.send(response)
+        await process_and_send_response(prompt, message=message)
 
 # warp 7, engage
 client.run(discord_bot_token)
