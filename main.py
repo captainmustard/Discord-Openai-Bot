@@ -1,6 +1,7 @@
 import os
 import discord
 from discord import app_commands
+from discord.ext import tasks
 import openai
 import json
 import requests
@@ -11,6 +12,8 @@ import toml
 import requests
 from noaa_sdk import NOAA
 from datetime import datetime, timedelta
+import math
+import asyncio
 
 # Load the configuration from the config.toml file
 config = toml.load("config.toml")
@@ -114,6 +117,30 @@ async def process_and_send_response(prompt, interaction=None, message=None):
         elif message:
             await message.channel.send(response)
 
+async def calculate_heat_index(temperature, humidity):
+    # Convert Celsius to Fahrenheit
+    fahrenheit = temperature
+
+    # Simple formula for heat index
+    heat_index_simple = 0.5 * (fahrenheit + 61.0 + ((fahrenheit - 68.0) * 1.2) + (humidity * 0.094))
+
+    # Full regression equation
+    heat_index_regression = -42.379 + 2.04901523 * fahrenheit + 10.14333127 * humidity - 0.22475541 * fahrenheit * humidity - 0.00683783 * fahrenheit**2 - 0.05481717 * humidity**2 + 0.00122874 * fahrenheit**2 * humidity + 0.00085282 * fahrenheit * humidity**2 - 0.00000199 * fahrenheit**2 * humidity**2
+
+    # Adjustments
+    if 80 <= fahrenheit <= 112 and humidity < 13:
+        adjustment = ((13 - humidity) / 4) * math.sqrt((17 - abs(fahrenheit - 95)) / 17)
+        heat_index_regression -= adjustment
+    elif 80 <= fahrenheit <= 87 and humidity > 85:
+        adjustment = ((humidity - 85) / 10) * ((87 - fahrenheit) / 5)
+        heat_index_regression += adjustment
+
+    # Use the simple formula if the heat index is below 80°F, otherwise use the full regression equation
+    heat_index = heat_index_simple if heat_index_simple < 80 else heat_index_regression
+
+    return round(heat_index)
+
+
 async def get_weather_forecast(postal_code='72916', country_code='US'):
     n = NOAA()
     res = n.get_forecasts(postal_code, country_code)
@@ -128,12 +155,25 @@ async def get_weather_forecast(postal_code='72916', country_code='US'):
 
         # Add the forecast to the weather_info dictionary for the corresponding hour
         if start_time.date() == now.date():
-            weather_info[hour] = forecast
+            temperature = forecast['temperature']
+            humidity = forecast['relativeHumidity']['value']
+            wind_direction = forecast['windDirection']
+            wind_speed = forecast['windSpeed']
+
+            if 'heatIndex' in forecast:
+                heat_index = forecast['heatIndex']['value']
+            else:
+                heat_index = await calculate_heat_index(temperature, humidity)
+
+            weather_info[hour] = {'forecast': forecast, 'heat_index': heat_index}
 
     # Create a string for each hour's forecast
     weather_strings = []
-    for hour, forecast in weather_info.items():
-        weather_string = f"At {hour}:00: {forecast['shortForecast']}, {forecast['temperature']}°{forecast['temperatureUnit']}, wind speed: {forecast['windSpeed']} from {forecast['windDirection']}."
+    for hour, info in weather_info.items():
+        forecast = info['forecast']
+        heat_index = info['heat_index']
+        humidity = forecast['relativeHumidity']['value']
+        weather_string = f"At {hour}:00: {forecast['shortForecast']}, {forecast['temperature']}°{forecast['temperatureUnit']}, humidity: {humidity}%, wind speed: {forecast['windSpeed']} mph from {forecast['windDirection']}, heat index: {heat_index}°F."
         weather_strings.append(weather_string)
 
     # Combine all the hourly forecast strings into a single string
@@ -141,13 +181,14 @@ async def get_weather_forecast(postal_code='72916', country_code='US'):
 
     return weather_string
 
+
 async def get_gpt4_response_with_weather():
     weather_data = await get_weather_forecast()
     print(weather_data)
     messages = [
         {
             "role": "system",
-            "content": f"summarize the weather forecast for the day in the writing style of boomhauer from king of the hill. Be consise and to the point. Keep it short. Limit your response to 1000 characters. Here is the data {weather_data}",
+            "content": f"summarize the weather forecast for the day in the writing style of boomhauer from king of the hill. Be consise and to the point. Limit your response to 1000 characters. Follow up with suggestions for weather appropriate outdoor activities. Here is the data {weather_data}",
         },
     ]
 
@@ -163,6 +204,22 @@ async def get_gpt4_response_with_weather():
     response_text = response['choices'][0]['message']['content'].strip()
     return response_text
 
+async def send_daily_weather():
+    for guild in client.guilds:
+        general_channel = discord.utils.get(guild.text_channels, name='general')
+        if general_channel:
+            response_text = await get_gpt4_response_with_weather()
+            await general_channel.send(response_text)
+
+@tasks.loop(hours=24)
+async def daily_weather_task():
+    now = datetime.now()
+    next_run = now.replace(hour=7, minute=0, second=0, microsecond=0)
+    if now > next_run:
+        next_run += timedelta(days=1)
+
+    await discord.utils.sleep_until(next_run)
+    await send_daily_weather()
 
 # Discord slash commands
 
@@ -203,6 +260,7 @@ async def weather_gpt(interaction):
 async def on_ready():
     await tree.sync()  # Add the guild argument if needed
     print("Ready!")
+    daily_weather_task.start()
 
 @client.event
 async def on_message(message):
