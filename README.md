@@ -19,4 +19,4 @@ The bot can be used in two ways:
 
 Contributions are welcome! Please open an issue or a pull request if you have any suggestions or improvements.
 
-![Screenshot](Screenshot_20230505_215518.png)
+![Screenshot](Screenshot_20230505_220152.png)
