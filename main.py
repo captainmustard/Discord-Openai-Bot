@@ -2,6 +2,7 @@ import os
 import discord
 from discord import app_commands
 from discord.ext import tasks
+from discord.utils import get
 import openai
 import json
 import requests
@@ -14,6 +15,7 @@ from noaa_sdk import NOAA
 from datetime import datetime, timedelta
 import math
 import asyncio
+from lxml import etree
 
 # Load the configuration from the config.toml file
 config = toml.load("config.toml")
@@ -195,7 +197,7 @@ async def get_gpt4_response_with_weather():
     response = openai.ChatCompletion.create(
         model="gpt-3.5-turbo",
         messages=messages,
-        max_tokens=3500,
+        max_tokens=2000,
         n=1,
         stop=None,
         temperature=0.5,
@@ -211,10 +213,98 @@ async def send_daily_weather():
             response_text = await get_gpt4_response_with_weather()
             await general_channel.send(response_text)
 
+last_alert_ids = set()
+
+async def get_weather_alerts():
+    global last_alert_ids
+
+    req = requests.get('https://alerts.weather.gov/cap/wwaatmget.php?x=ARZ029&y=0')
+    xml = req.content
+    ns = {'atom': 'http://www.w3.org/2005/Atom', 'cap': 'urn:oasis:names:tc:emergency:cap:1.1'}
+    atom = etree.fromstring(xml)
+
+    alerts = []
+
+    current_alert_ids = set()
+
+    for element in atom.xpath('//atom:entry', namespaces=ns):
+        alert_id = element.find("atom:id", namespaces=ns).text
+        current_alert_ids.add(alert_id)
+
+        if alert_id in last_alert_ids:
+            continue
+
+        title_element = element.find("atom:title", namespaces=ns)
+        title = title_element.text if title_element is not None else ''
+
+        summary_element = element.find("atom:summary", namespaces=ns)
+        summary = summary_element.text if summary_element is not None else ''
+
+        # Check if the text contains the "no active alerts" message
+        if title.find("There are no active watches, warnings or advisories") != -1:
+            continue
+
+        published_element = element.find("atom:published", namespaces=ns)
+        published = published_element.text if published_element is not None else ''
+
+        effective_element = element.find("cap:effective", namespaces=ns)
+        effective = effective_element.text if effective_element is not None else ''
+
+        expires_element = element.find("cap:expires", namespaces=ns)
+        expires = expires_element.text if expires_element is not None else ''
+
+        urgency_element = element.find("cap:urgency", namespaces=ns)
+        urgency = urgency_element.text if urgency_element is not None else ''
+
+        severity_element = element.find("cap:severity", namespaces=ns)
+        severity = severity_element.text if severity_element is not None else ''
+
+        certainty_element = element.find("cap:certainty", namespaces=ns)
+        certainty = certainty_element.text if certainty_element is not None else ''
+
+        area_desc_element = element.find("cap:areaDesc", namespaces=ns)
+        area_desc = area_desc_element.text if area_desc_element is not None else ''
+
+        if title:
+            published_formatted = datetime.strptime(published, "%Y-%m-%dT%H:%M:%S%z").strftime("%b %-d, %I:%M %p %Z")
+            alert_text = f"{title} - Issued on {published_formatted}\nAffected Counties: {area_desc}\nSummary: {summary}\nUrgency: {urgency}\nSeverity: {severity}\n"
+            alerts.append((title, alert_text))
+
+    last_alert_ids = current_alert_ids
+    return alerts
+
+
+
+
+@tasks.loop(minutes=5)  # Adjust the interval as needed
+async def check_weather_alerts():
+    alerts = await get_weather_alerts()
+    print(alerts)
+
+    if not alerts:
+        print("no weather alerts")
+        return
+
+    for guild in client.guilds:
+        general_channel = get(guild.text_channels, name="robo-sexuals-anonymous")
+
+        if general_channel is None:
+            for channel in guild.text_channels:
+                if channel.permissions_for(guild.me).send_messages:
+                    general_channel = channel
+                    break
+
+        if general_channel is None:
+            continue
+
+        for title, text in alerts:
+            await general_channel.send(f"**{title}**\n{text}\n")
+
 @tasks.loop(hours=24)
 async def daily_weather_task():
     now = datetime.now()
     next_run = now.replace(hour=7, minute=0, second=0, microsecond=0)
+    print("running daily weather alert")
     if now > next_run:
         next_run += timedelta(days=1)
 
@@ -261,6 +351,7 @@ async def on_ready():
     await tree.sync()  # Add the guild argument if needed
     print("Ready!")
     daily_weather_task.start()
+    check_weather_alerts.start()
 
 @client.event
 async def on_message(message):
